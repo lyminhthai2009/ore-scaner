@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "orescanner",
+  "version": "${version}",
+  "name": "Ore Scanner",
+  "description": "Quét khoáng sản, spawner và chest trong khu vực. Chống lag tối ưu.",
+  "authors": [
+    "YourName"
+  ],
+  "contact": {
+    "homepage": "https://github.com/yourname/ore-scanner",
+    "sources": "https://github.com/yourname/ore-scanner"
+  },
+  "license": "MIT",
+  "icon": "assets/orescanner/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "com.orescanner.OreScannerMod"
+    ],
+    "client": [
+      "com.orescanner.client.OreScannerClient"
+    ]
+  },
+  "mixins": [],
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "minecraft": ">=1.21",
+    "java": ">=21",
+    "fabric-api": "*"
+  },
+  "suggests": {}
+}
