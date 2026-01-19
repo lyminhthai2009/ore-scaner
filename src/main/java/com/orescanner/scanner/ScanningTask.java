@@ -8,172 +8,133 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.ChunkPos;
-import net.minecraft.world.World;
 
 import java.util.*;
 
-/**
- * Task quét blocks - Chạy incremental mỗi tick để tránh lag
- * 
- * Cơ chế hoạt động:
- * 1. Tạo queue chứa tất cả BlockPos cần quét
- * 2. Mỗi tick, poll N blocks từ queue (N = blocksPerSecond / 20)
- * 3. Chỉ quét chunks đã load
- * 4. Lưu kết quả vào List<ScanResult>
- */
 public class ScanningTask {
     private final Set<Block> targetBlocks;
-    private final int chunkRadius;
-    private final int minY;
-    private final int maxY;
-    private final int blocksPerTick; // Số blocks quét mỗi tick
+    private final int blocksPerTick;
     
-    private final Queue<BlockPos> scanQueue = new LinkedList<>();
+    // Tọa độ giới hạn
+    private int minX, maxX;
+    private int minZ, maxZ;
+    private final int minY, maxY;
+
+    // Con trỏ quét hiện tại
+    private int currentX, currentY, currentZ;
+
     private final List<ScanResult> results = new ArrayList<>();
-    
     private final long startTime;
-    private int totalBlocks;
-    private int scannedBlocks = 0;
+    private long totalBlocks; 
+    private long scannedBlocks = 0;
     private boolean complete = false;
     
+    private final int chunkRadius; // Lưu tạm để init
+
     public ScanningTask(Set<Block> targetBlocks, int chunkRadius, int minY, int maxY, int blocksPerSecond) {
         this.targetBlocks = targetBlocks;
-        this.chunkRadius = chunkRadius;
         this.minY = minY;
         this.maxY = maxY;
         this.blocksPerTick = Math.max(1, blocksPerSecond / 20); // 20 ticks/giây
         this.startTime = System.currentTimeMillis();
+        this.chunkRadius = chunkRadius; 
     }
-    
-    /**
-     * Khởi tạo scan queue - Tạo danh sách tất cả vị trí cần quét
-     */
+
     public void initialize(MinecraftClient client) {
-        if (client.player == null || client.world == null) return;
+        if (client.player == null || client.world == null) {
+            complete = true;
+            return;
+        }
         
         BlockPos playerPos = client.player.getBlockPos();
         ChunkPos centerChunk = new ChunkPos(playerPos);
         
-        // Tính toán phạm vi chunks
-        int startChunkX = centerChunk.x - chunkRadius;
-        int endChunkX = centerChunk.x + chunkRadius;
-        int startChunkZ = centerChunk.z - chunkRadius;
-        int endChunkZ = centerChunk.z + chunkRadius;
+        // Tính toán giới hạn block dựa trên chunk
+        this.minX = (centerChunk.x - chunkRadius) * 16;
+        this.maxX = (centerChunk.x + chunkRadius) * 16 + 15;
+        this.minZ = (centerChunk.z - chunkRadius) * 16;
+        this.maxZ = (centerChunk.z + chunkRadius) * 16 + 15;
         
-        // Thêm tất cả BlockPos vào queue
-        for (int chunkX = startChunkX; chunkX <= endChunkX; chunkX++) {
-            for (int chunkZ = startChunkZ; chunkZ <= endChunkZ; chunkZ++) {
-                // Chỉ quét chunks đã load
-                if (!client.world.isChunkLoaded(chunkX, chunkZ)) continue;
+        // Đặt con trỏ về vị trí bắt đầu
+        this.currentX = minX;
+        this.currentY = minY;
+        this.currentZ = minZ;
+
+        // Tính tổng số block
+        long width = (long) maxX - minX + 1;
+        long length = (long) maxZ - minZ + 1;
+        long height = (long) maxY - minY + 1;
+        this.totalBlocks = width * length * height;
+        
+        OreScannerMod.LOGGER.info("Scan initialized: {} blocks", totalBlocks);
+    }
+    
+    public void tick(MinecraftClient client) {
+        if (complete || client.world == null) return;
+        
+        int blocksProcessed = 0;
+        BlockPos.Mutable mutablePos = new BlockPos.Mutable();
+
+        // Chạy vòng lặp quét
+        while (blocksProcessed < blocksPerTick && !complete) {
+            // Chỉ quét nếu chunk đã load để tránh lag
+            if (client.world.isChunkLoaded(currentX >> 4, currentZ >> 4)) {
+                mutablePos.set(currentX, currentY, currentZ);
+                BlockState state = client.world.getBlockState(mutablePos);
+                Block block = state.getBlock();
                 
-                // Thêm tất cả blocks trong chunk vào queue
-                int startX = chunkX << 4; // chunkX * 16
-                int startZ = chunkZ << 4;
-                
-                for (int x = startX; x < startX + 16; x++) {
-                    for (int z = startZ; z < startZ + 16; z++) {
-                        for (int y = minY; y <= maxY; y++) {
-                            scanQueue.add(new BlockPos(x, y, z));
-                        }
+                if (targetBlocks.contains(block)) {
+                    // Tìm thấy! Lưu vị trí (phải new BlockPos vì mutablePos sẽ thay đổi)
+                    results.add(new ScanResult(block, mutablePos.toImmutable()));
+                }
+            }
+
+            scannedBlocks++;
+            blocksProcessed++;
+
+            // Logic tăng tọa độ (Y -> X -> Z)
+            currentY++;
+            if (currentY > maxY) {
+                currentY = minY;
+                currentX++;
+                if (currentX > maxX) {
+                    currentX = minX;
+                    currentZ++;
+                    if (currentZ > maxZ) {
+                        complete = true;
+                        onComplete(client);
+                        break;
                     }
                 }
             }
         }
-        
-        totalBlocks = scanQueue.size();
-        OreScannerMod.LOGGER.info("Scan initialized: {} blocks to scan", totalBlocks);
     }
     
-    /**
-     * Chạy mỗi tick - Quét N blocks rồi dừng
-     */
-    public void tick(MinecraftClient client) {
-        if (complete || client.world == null) return;
-        
-        int blocksToScan = Math.min(blocksPerTick, scanQueue.size());
-        
-        for (int i = 0; i < blocksToScan; i++) {
-            BlockPos pos = scanQueue.poll();
-            if (pos == null) break;
-            
-            // Quét block tại vị trí này
-            BlockState state = client.world.getBlockState(pos);
-            Block block = state.getBlock();
-            
-            if (targetBlocks.contains(block)) {
-                results.add(new ScanResult(block, pos));
-            }
-            
-            scannedBlocks++;
-        }
-        
-        // Kiểm tra xem đã quét xong chưa
-        if (scanQueue.isEmpty()) {
-            complete = true;
-            onComplete(client);
-        }
-    }
-    
-    /**
-     * Gọi khi quét xong - Export file và thông báo
-     */
     private void onComplete(MinecraftClient client) {
         long duration = System.currentTimeMillis() - startTime;
-        
         OreScannerMod.LOGGER.info("Scan complete! Found {} blocks in {}ms", results.size(), duration);
-        
-        // Export ra file
         FileExporter.exportResults(results);
         
-        // Thông báo cho người chơi
         if (client.player != null) {
-            client.player.sendMessage(
-                Text.literal("§a[Ore Scanner] Quét xong! Tìm thấy " + results.size() + " blocks."),
-                false
-            );
-            client.player.sendMessage(
-                Text.literal("§7Kết quả đã lưu vào .minecraft/scans/"),
-                false
-            );
+            client.player.sendMessage(Text.literal("§a[Ore Scanner] Hoàn thành! Tìm thấy " + results.size() + " blocks."), false);
         }
     }
     
-    // === GETTERS ===
-    
-    public boolean isComplete() {
-        return complete;
-    }
-    
-    public int getTotalBlocks() {
-        return totalBlocks;
-    }
-    
-    public int getScannedBlocks() {
-        return scannedBlocks;
-    }
+    public boolean isComplete() { return complete; }
+    public long getTotalBlocks() { return totalBlocks; }
+    public long getScannedBlocks() { return scannedBlocks; }
     
     public double getProgress() {
         if (totalBlocks == 0) return 0;
         return (double) scannedBlocks / totalBlocks;
     }
     
-    public List<ScanResult> getResults() {
-        return new ArrayList<>(results);
-    }
+    public List<ScanResult> getResults() { return results; }
     
-    public long getElapsedTime() {
-        return System.currentTimeMillis() - startTime;
-    }
-    
-    /**
-     * Tính thời gian dự kiến còn lại (giây)
-     */
     public int getEstimatedTimeRemaining() {
         if (scannedBlocks == 0 || blocksPerTick == 0) return 0;
-        
-        int remainingBlocks = totalBlocks - scannedBlocks;
-        int remainingTicks = remainingBlocks / blocksPerTick;
-        
-        return remainingTicks / 20; // Convert ticks sang giây
+        long remainingBlocks = totalBlocks - scannedBlocks;
+        long remainingTicks = remainingBlocks / blocksPerTick;
+        return (int) (remainingTicks / 20);
     }
 }
