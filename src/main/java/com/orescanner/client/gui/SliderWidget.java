@@ -2,6 +2,7 @@ package com.orescanner.client.gui;
 
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.widget.ClickableWidget;
+import net.minecraft.client.font.TextRenderer;
 import net.minecraft.text.Text;
 
 /**
@@ -9,6 +10,7 @@ import net.minecraft.text.Text;
  * Hiển thị: [Label] [====|====] [Value] [Suffix]
  */
 public class SliderWidget extends ClickableWidget {
+    private final TextRenderer textRenderer;
     private final Text prefix;
     private final Text suffix;
     private final int minValue;
@@ -17,8 +19,9 @@ public class SliderWidget extends ClickableWidget {
     
     private boolean dragging = false;
     
-    public SliderWidget(int x, int y, int width, int height, Text prefix, Text suffix, int min, int max, int initial) {
+    public SliderWidget(int x, int y, int width, int height, Text prefix, Text suffix, int min, int max, int initial, TextRenderer textRenderer) {
         super(x, y, width, height, Text.empty());
+        this.textRenderer = textRenderer;
         this.prefix = prefix;
         this.suffix = suffix;
         this.minValue = min;
@@ -38,9 +41,9 @@ public class SliderWidget extends ClickableWidget {
         int fillWidth = (int) ((this.width - 2) * progress);
         context.fill(this.getX() + 1, this.getY() + 1, this.getX() + 1 + fillWidth, this.getY() + this.height - 1, 0xFF00AA00);
         
-        // Text
+        // Text - FIXED: Dùng textRenderer thay vì Matrix4f
         context.drawCenteredTextWithShadow(
-            context.getMatrices().peek().getPositionMatrix(),
+            this.textRenderer,
             this.getMessage(),
             this.getX() + this.width / 2,
             this.getY() + (this.height - 8) / 2,
