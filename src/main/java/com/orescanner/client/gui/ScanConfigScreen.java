@@ -43,7 +43,7 @@ public class ScanConfigScreen extends Screen {
         this.chunkRadiusSlider = new SliderWidget(
             centerX - 150, startY, 300, 20,
             Text.literal("Bán kính: "), Text.literal(" chunks"),
-            1, 12, 5  // ← THIẾU this.textRenderer
+            1, 12, 5, this.textRenderer  // ← THÊM tham số này
         );
         this.addDrawableChild(chunkRadiusSlider);
         startY += 30;
@@ -52,7 +52,7 @@ public class ScanConfigScreen extends Screen {
         this.blocksPerSecSlider = new SliderWidget(
             centerX - 150, startY, 300, 20,
             Text.literal("Tốc độ: "), Text.literal(" blocks/s"),
-            1000, 500000, 50000  // ← THIẾU this.textRenderer
+            1000, 500000, 50000, this.textRenderer  // ← THÊM tham số này
         );
         this.addDrawableChild(blocksPerSecSlider);
         startY += 40;
@@ -318,3 +318,4 @@ public class ScanConfigScreen extends Screen {
     }
 
 }
+
